@@ -42,11 +42,16 @@ export async function startConversation(
   conversationId: string,
   patientId: string,
 ): Promise<EngineResponse> {
-  const patient = await prisma.patient.findUnique({
-    where: { id: patientId },
-    include: { user: { select: { firstName: true, lastName: true } } },
-  });
+  const [patient, previousConvCount] = await Promise.all([
+    prisma.patient.findUnique({
+      where: { id: patientId },
+      include: { user: { select: { firstName: true, lastName: true } } },
+    }),
+    // Current conversation is already created, so count > 1 means returning patient
+    prisma.conversation.count({ where: { patientId } }),
+  ]);
   const patientName = patient ? patient.user.firstName : 'there';
+  const isFirstConversation = previousConvCount <= 1;
 
   const state: SessionState = {
     conversationId,
@@ -66,16 +71,23 @@ export async function startConversation(
   };
   saveSession(state);
 
-  return {
-    phase: ConversationPhase.DISCLAIMER,
-    message:
-      `Hi ${patientName}! I'm Ruby, your virtual symptom assistant. ` +
+  const emergencyQuestion =
+    'Are you currently experiencing any emergency symptoms such as chest pain, ' +
+    'difficulty breathing, significant bleeding, fainting, or confusion?';
+
+  const message = isFirstConversation
+    ? `Hi ${patientName}! I'm Ruby, your virtual symptom assistant. ` +
       'I\'ll ask you some questions about how you\'re feeling today. ' +
       'Your responses will be shared with your care team.\n\n' +
       '⚠️ **Important:** This is not a substitute for emergency medical care. ' +
       'If you are experiencing a medical emergency, please call 911 immediately.\n\n' +
-      'Are you currently experiencing any emergency symptoms such as chest pain, ' +
-      'difficulty breathing, significant bleeding, fainting, or confusion?',
+      emergencyQuestion
+    : `Hi ${patientName}! Let's check in on how you're feeling today.\n\n` +
+      emergencyQuestion;
+
+  return {
+    phase: ConversationPhase.DISCLAIMER,
+    message,
     messageType: MessageType.OPTION_SELECT,
     options: YES_NO_OPTIONS,
     progress: 0,
