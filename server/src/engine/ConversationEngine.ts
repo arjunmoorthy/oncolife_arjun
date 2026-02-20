@@ -74,7 +74,8 @@ export async function startConversation(
       'Your responses will be shared with your care team.\n\n' +
       '⚠️ **Important:** This is not a substitute for emergency medical care. ' +
       'If you are experiencing a medical emergency, please call 911 immediately.\n\n' +
-      'Do you understand and wish to continue?',
+      'Are you currently experiencing any emergency symptoms such as chest pain, ' +
+      'difficulty breathing, significant bleeding, fainting, or confusion?',
     messageType: MessageType.OPTION_SELECT,
     options: YES_NO_OPTIONS,
     progress: 0,
@@ -151,24 +152,29 @@ async function handleDisclaimer(
 ): Promise<EngineResponse> {
   const answer = response.selectedOption || response.text || '';
   if (answer === 'No') {
-    state.phase = ConversationPhase.COMPLETED;
+    // "No" = no emergency symptoms → continue to patient context
+    state.phase = ConversationPhase.PATIENT_CONTEXT;
     await persistPhase(state);
     saveSession(state);
     return {
-      phase: ConversationPhase.COMPLETED,
-      message: 'No problem. You can start a new check-in any time. Take care!',
-      messageType: MessageType.TEXT,
-      isComplete: true,
+      phase: ConversationPhase.PATIENT_CONTEXT,
+      message: 'When was your last chemotherapy treatment?',
+      messageType: MessageType.OPTION_SELECT,
+      options: LAST_CHEMO_OPTIONS,
+      progress: 5,
     };
   }
-  state.phase = ConversationPhase.PATIENT_CONTEXT;
+  // "Yes" = has emergency symptoms → show specific emergency buttons
+  state.phase = ConversationPhase.EMERGENCY_CHECK;
   await persistPhase(state);
   saveSession(state);
+  const emergencyLabels = EMERGENCY_BUTTONS.map(b => b.label);
   return {
-    phase: ConversationPhase.PATIENT_CONTEXT,
-    message: 'When was your last chemotherapy treatment?',
+    phase: ConversationPhase.EMERGENCY_CHECK,
+    message:
+      'Please select the emergency symptom you are experiencing:',
     messageType: MessageType.OPTION_SELECT,
-    options: LAST_CHEMO_OPTIONS,
+    options: [...emergencyLabels, 'None of these'],
     progress: 5,
   };
 }
@@ -192,18 +198,17 @@ async function handlePatientContext(
     };
   }
   state.patientContext.nextVisit = answer;
-  state.phase = ConversationPhase.EMERGENCY_CHECK;
+  // Emergency was already handled upfront — skip to symptom selection
+  state.phase = ConversationPhase.SYMPTOM_SELECTION;
   await persistPhase(state);
   saveSession(state);
-  const emergencyLabels = EMERGENCY_BUTTONS.map(b => b.label);
+  const allSymptoms = SYMPTOM_SELECTION_CATEGORIES.flatMap(c => c.symptoms.map(s => s.label));
   return {
-    phase: ConversationPhase.EMERGENCY_CHECK,
-    message:
-      'Before we begin, are you experiencing any of these right now?\n\n' +
-      'If yes, select the one that applies. Otherwise select "None of these".',
-    messageType: MessageType.OPTION_SELECT,
-    options: [...emergencyLabels, 'None of these'],
-    progress: 10,
+    phase: ConversationPhase.SYMPTOM_SELECTION,
+    message: 'What symptoms are you experiencing? Select all that apply.',
+    messageType: MessageType.MULTI_SELECT,
+    options: [...allSymptoms, 'None — I feel fine'],
+    progress: 15,
   };
 }
 
@@ -232,16 +237,16 @@ async function handleEmergencyCheck(
       isComplete: true,
     };
   }
-  state.phase = ConversationPhase.SYMPTOM_SELECTION;
+  // "None of these" — user said yes to emergencies but picked none; continue safely to patient context
+  state.phase = ConversationPhase.PATIENT_CONTEXT;
   await persistPhase(state);
   saveSession(state);
-  const allSymptoms = SYMPTOM_SELECTION_CATEGORIES.flatMap(c => c.symptoms.map(s => s.label));
   return {
-    phase: ConversationPhase.SYMPTOM_SELECTION,
-    message: 'What symptoms are you experiencing? Select all that apply.',
-    messageType: MessageType.MULTI_SELECT,
-    options: [...allSymptoms, 'None — I feel fine'],
-    progress: 15,
+    phase: ConversationPhase.PATIENT_CONTEXT,
+    message: 'When was your last chemotherapy treatment?',
+    messageType: MessageType.OPTION_SELECT,
+    options: LAST_CHEMO_OPTIONS,
+    progress: 5,
   };
 }
 
