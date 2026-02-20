@@ -22,6 +22,12 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Prisma
+prisma/*.db
+
 # Logs
 *.log
 npm-debug.log*
+
+# Generated
+packages/db/src/generated/

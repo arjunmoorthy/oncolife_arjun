@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ───────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  PROVIDER
+  NAVIGATOR
+  PATIENT
+}
+
+enum ConversationPhase {
+  DISCLAIMER
+  PATIENT_CONTEXT
+  EMERGENCY_CHECK
+  SYMPTOM_SELECTION
+  SCREENING
+  FOLLOW_UP
+  BRANCHED
+  SUMMARY
+  ADDING_NOTES
+  COMPLETED
+  EMERGENCY
+}
+
+enum TriageLevel {
+  CALL_911
+  URGENT
+  NOTIFY_CARE_TEAM
+  NONE
+}
+
+enum SeverityLevel {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum MessageType {
+  TEXT
+  OPTION_SELECT
+  MULTI_SELECT
+  DATE_PICK
+  NUMBER_INPUT
+  SUMMARY
+}
+
+enum MessageRole {
+  BOT
+  PATIENT
+}
+
+// ── User ────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         UserRole
+  firstName    String
+  lastName     String
+  phone        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  patient   Patient?
+  clinician Clinician?
+}
+
+// ── Patient ─────────────────────────────────────────────────────────
+
+model Patient {
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id])
+  dateOfBirth         DateTime?
+  mrn                 String    @unique
+  cancerType          String?
+  planName            String?
+  chemoStartDate      DateTime?
+  chemoEndDate        DateTime?
+  bmi                 Float?
+  pmh                 String?
+  psh                 String?
+  currentMedications  String?
+  disclaimerAccepted  Boolean   @default(false)
+  privacyAccepted     Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+
+  providers       PatientProvider[]
+  conversations   Conversation[]
+  sessionSummaries SessionSummary[]
+  dailyCheckIns   DailyCheckIn[]
+  diaryEntries    DiaryEntry[]
+  alerts          Alert[]
+}
+
+// ── Clinician ───────────────────────────────────────────────────────
+
+model Clinician {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id])
+  clinic              String?
+  address             String?
+  faxNumber           String?
+  assignedProviderIds String[]
+
+  patients            PatientProvider[]
+  staffAssignmentsAsNav StaffAssignment[] @relation("NavigatorAssignments")
+  staffAssignmentsAsProv StaffAssignment[] @relation("ProviderAssignments")
+}
+
+// ── PatientProvider (M2M) ───────────────────────────────────────────
+
+model PatientProvider {
+  patientId   String
+  clinicianId String
+  patient     Patient   @relation(fields: [patientId], references: [id])
+  clinician   Clinician @relation(fields: [clinicianId], references: [id])
+
+  @@id([patientId, clinicianId])
+}
+
+// ── Conversation ────────────────────────────────────────────────────
+
+model Conversation {
+  id          String            @id @default(cuid())
+  patientId   String
+  patient     Patient           @relation(fields: [patientId], references: [id])
+  phase       ConversationPhase @default(DISCLAIMER)
+  startedAt   DateTime          @default(now())
+  completedAt DateTime?
+  triageLevel TriageLevel?
+  isEmergency Boolean           @default(false)
+
+  messages       ConversationMessage[]
+  symptomReports SymptomReport[]
+  sessionSummary SessionSummary?
+  alerts         Alert[]
+}
+
+// ── ConversationMessage ─────────────────────────────────────────────
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           MessageRole
+  content        String
+  messageType    MessageType  @default(TEXT)
+  options        Json?
+  selectedOption String?
+  timestamp      DateTime     @default(now())
+}
+
+// ── SymptomReport ───────────────────────────────────────────────────
+
+model SymptomReport {
+  id              String       @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id])
+  symptomId       String
+  severity        SeverityLevel
+  duration        String?
+  triageLevel     TriageLevel  @default(NONE)
+  notes           String?
+  medicationsTried String?
+  branchedFrom    String?
+}
+
+// ── SessionSummary ──────────────────────────────────────────────────
+
+model SessionSummary {
+  id               String       @id @default(cuid())
+  conversationId   String       @unique
+  conversation     Conversation @relation(fields: [conversationId], references: [id])
+  patientId        String
+  patient          Patient      @relation(fields: [patientId], references: [id])
+  summaryText      String
+  patientAddedNotes String?
+  recommendations  Json         @default("[]")
+  educationLinks   Json         @default("[]")
+  createdAt        DateTime     @default(now())
+}
+
+// ── DailyCheckIn ────────────────────────────────────────────────────
+
+model DailyCheckIn {
+  id               String        @id @default(cuid())
+  patientId        String
+  patient          Patient       @relation(fields: [patientId], references: [id])
+  date             DateTime
+  severity         SeverityLevel
+  summaryText      String?
+  symptoms         Json          @default("[]")
+  patientQuote     String?
+  medicationsTried String?
+  createdAt        DateTime      @default(now())
+}
+
+// ── DiaryEntry ──────────────────────────────────────────────────────
+
+model DiaryEntry {
+  id        String   @id @default(cuid())
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  content   String
+  forDoctor Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── EducationResource ───────────────────────────────────────────────
+
+model EducationResource {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  content         String
+  category        String
+  readTimeMinutes Int?
+  priority        Int?
+  symptoms        Json     @default("[]")
+  createdAt       DateTime @default(now())
+}
+
+// ── Alert ───────────────────────────────────────────────────────────
+
+model Alert {
+  id             String       @id @default(cuid())
+  patientId      String
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  triageLevel    TriageLevel
+  symptomId      String?
+  message        String
+  acknowledged   Boolean      @default(false)
+  acknowledgedBy String?
+  createdAt      DateTime     @default(now())
+}
+
+// ── StaffAssignment ─────────────────────────────────────────────────
+
+model StaffAssignment {
+  clinicianId         String
+  providerClinicianId String
+  clinician           Clinician @relation("NavigatorAssignments", fields: [clinicianId], references: [id])
+  providerClinician   Clinician @relation("ProviderAssignments", fields: [providerClinicianId], references: [id])
+
+  @@id([clinicianId, providerClinicianId])
+}
+
