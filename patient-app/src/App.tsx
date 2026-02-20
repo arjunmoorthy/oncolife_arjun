@@ -1,18 +1,29 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage } from './pages/LoginPage';
+import { ChatPage } from './pages/ChatPage';
+import { SummariesPage } from './pages/SummariesPage';
+import { NotesPage } from './pages/NotesPage';
+import { EducationPage } from './pages/EducationPage';
+import { ProfilePage } from './pages/ProfilePage';
 
-function HomePage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-primary">OncoLife</h1>
-        <p className="mt-2 text-muted-foreground">Patient Portal</p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          Your AI-powered symptom management companion
-        </p>
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
-    </div>
-  );
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
 }
 
 function NotFound() {
@@ -31,12 +42,20 @@ export function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/chat" element={<div>Chat - Coming Soon</div>} />
-          <Route path="/diary" element={<div>Diary - Coming Soon</div>} />
-          <Route path="/education" element={<div>Education - Coming Soon</div>} />
-          <Route path="/profile" element={<div>Profile - Coming Soon</div>} />
-          <Route path="/login" element={<div>Login - Coming Soon</div>} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/" element={<ChatPage />} />
+            <Route path="/summaries" element={<SummariesPage />} />
+            <Route path="/notes" element={<NotesPage />} />
+            <Route path="/education" element={<EducationPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
