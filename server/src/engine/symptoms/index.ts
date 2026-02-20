@@ -4,6 +4,7 @@ import { PAIN_NERVE_MODULES, PAI_213, NEU_216, HEA_210, ABD_211, LEG_208, URG_11
 import { SYSTEMIC_MODULES, FEV_202, FAT_206, COU_215, URI_211 } from './systemic';
 import { SKIN_EXTERNAL_MODULES, SKI_212, SWE_214, EYE_207 } from './skinExternal';
 import { HIDDEN_MODULES, NEU_304 } from './hidden';
+import { EMERGENCY_MODULES, URG_101, URG_102, URG_103, URG_107, URG_108 } from './emergency';
 
 // ── Symptom Registry ─────────────────────────────────────────────
 
@@ -13,6 +14,7 @@ const ALL_MODULES: SymptomModuleDef[] = [
   ...SYSTEMIC_MODULES,
   ...SKIN_EXTERNAL_MODULES,
   ...HIDDEN_MODULES,
+  ...EMERGENCY_MODULES,
 ];
 
 const SYMPTOM_REGISTRY = new Map<string, SymptomModuleDef>();
@@ -42,11 +44,13 @@ export {
   SYSTEMIC_MODULES,
   SKIN_EXTERNAL_MODULES,
   HIDDEN_MODULES,
+  EMERGENCY_MODULES,
   // Individual modules
   NAU_203, VOM_204, DIA_205, CON_210, APP_209, MSO_208, DEH_201,
   PAI_213, NEU_216, HEA_210, ABD_211, LEG_208, URG_114, JMP_212,
   FEV_202, FAT_206, COU_215, URI_211,
   SKI_212, SWE_214, EYE_207,
   NEU_304,
+  URG_101, URG_102, URG_103, URG_107, URG_108,
 };
 

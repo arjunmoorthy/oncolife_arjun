@@ -232,11 +232,28 @@ async function handleEmergencyCheck(
 ): Promise<EngineResponse> {
   const answer = response.selectedOption || response.text || '';
   if (answer !== 'None of these') {
+    // Find the emergency symptom module and route through its screening questions
     const emg = EMERGENCY_BUTTONS.find(b => b.label === answer);
+    const symptomId = emg?.id;
+    if (symptomId) {
+      const mod = getSymptomModule(symptomId);
+      if (mod) {
+        // Push the emergency symptom into selectedSymptoms and start screening
+        state.selectedSymptoms = [symptomId];
+        state.currentSymptomIndex = 0;
+        state.currentQuestionIndex = 0;
+        state.currentSection = 'screening';
+        state.phase = ConversationPhase.SCREENING;
+        await persistPhase(state);
+        saveSession(state);
+        return nextQuestion(state);
+      }
+    }
+    // Fallback: if no module found, use inline emergency response
     state.isEmergency = true;
     state.phase = ConversationPhase.EMERGENCY;
     await persistPhase(state);
-    await createAlert(state, TriageLevel.CALL_911, `Emergency: ${answer} (${emg?.id || 'unknown'})`);
+    await createAlert(state, TriageLevel.CALL_911, `Emergency: ${answer} (${symptomId || 'unknown'})`);
     saveSession(state);
     return {
       phase: ConversationPhase.EMERGENCY,

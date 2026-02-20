@@ -489,7 +489,7 @@ export const MSO_208: SymptomModuleDef = defineSymptom({
 export const DEH_201: SymptomModuleDef = defineSymptom({
   symptomId: 'DEH-201',
   name: 'Dehydration',
-  isHidden: false,
+  isHidden: true,
   screeningQuestions: [
     {
       id: 'urine_color',
