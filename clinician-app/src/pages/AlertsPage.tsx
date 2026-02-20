@@ -1,20 +1,43 @@
-import { useState } from 'react';
-import { MOCK_ALERTS } from '@/lib/mockData';
+import { useState, useEffect } from 'react';
 import type { MockAlert } from '@/lib/mockData';
+import { api } from '@/lib/api';
 import { AlertsList } from '@/components/alerts/AlertsList';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+function toMockAlert(a: any): MockAlert {
+  return {
+    id: a.id,
+    patientId: a.patientId,
+    patientName: `${a.patient?.user?.firstName ?? ''} ${a.patient?.user?.lastName ?? ''}`.trim(),
+    triageLevel: a.triageLevel,
+    symptom: a.symptom ?? '',
+    message: a.message ?? '',
+    acknowledged: a.acknowledged ?? false,
+    acknowledgedBy: a.acknowledgedBy,
+    createdAt: a.createdAt,
+  };
+}
+
 export function AlertsPage() {
-  const [alerts, setAlerts] = useState<MockAlert[]>(MOCK_ALERTS);
+  const [alerts, setAlerts] = useState<MockAlert[]>([]);
   const [showAll, setShowAll] = useState(false);
 
-  const handleAcknowledge = (id: string) => {
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.id === id ? { ...a, acknowledged: true, acknowledgedBy: 'c001' } : a,
-      ),
-    );
+  useEffect(() => {
+    api.get<any[]>('/alerts').then((data) => setAlerts(data.map(toMockAlert))).catch(() => {});
+  }, []);
+
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await api.patch(`/alerts/${id}/acknowledge`, {});
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === id ? { ...a, acknowledged: true } : a,
+        ),
+      );
+    } catch (err) {
+      console.error('Failed to acknowledge alert:', err);
+    }
   };
 
   const displayed = showAll ? alerts : alerts.filter((a) => !a.acknowledged);

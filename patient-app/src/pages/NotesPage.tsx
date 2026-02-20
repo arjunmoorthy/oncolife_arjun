@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Stethoscope } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,25 +11,45 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { mockDiaryEntries, type DiaryEntry } from '@/lib/mockData';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
+
+interface DiaryEntry {
+  id: string;
+  patientId: string;
+  content: string;
+  forDoctor: boolean;
+  createdAt: string;
+}
 
 export function NotesPage() {
-  const [entries, setEntries] = useState<DiaryEntry[]>(mockDiaryEntries);
+  const { patientId } = useAuth();
+  const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [newForDoctor, setNewForDoctor] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
 
-  const handleCreate = () => {
-    if (!newContent.trim()) return;
-    const entry: DiaryEntry = {
-      id: `diary-${Date.now()}`,
-      patientId: 'usr-001',
-      date: new Date().toISOString().split('T')[0],
-      content: newContent.trim(),
-      forDoctor: newForDoctor,
-      createdAt: new Date().toISOString(),
-    };
-    setEntries([entry, ...entries]);
+  useEffect(() => {
+    if (!patientId) return;
+    setLoadingData(true);
+    api.get<DiaryEntry[]>(`/patients/${patientId}/diary`)
+      .then(setEntries)
+      .catch(() => {})
+      .finally(() => setLoadingData(false));
+  }, [patientId]);
+
+  const handleCreate = async () => {
+    if (!newContent.trim() || !patientId) return;
+    try {
+      const entry = await api.post<DiaryEntry>(`/patients/${patientId}/diary`, {
+        content: newContent.trim(),
+        forDoctor: newForDoctor,
+      });
+      setEntries([entry, ...entries]);
+    } catch {
+      // silently fail
+    }
     setNewContent('');
     setNewForDoctor(false);
     setDialogOpen(false);
@@ -54,7 +74,11 @@ export function NotesPage() {
 
         {/* Entries */}
         <div className="space-y-4">
-          {entries.length === 0 ? (
+          {loadingData ? (
+            <div className="py-16 text-center">
+              <p className="text-[#64748B]">Loading diary entries...</p>
+            </div>
+          ) : entries.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-[#64748B]">No diary entries yet. Start writing!</p>
             </div>
@@ -66,7 +90,7 @@ export function NotesPage() {
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-[#0F172A]">
-                          {new Date(entry.date).toLocaleDateString('en-US', {
+                          {new Date(entry.createdAt).toLocaleDateString('en-US', {
                             weekday: 'long',
                             month: 'long',
                             day: 'numeric',

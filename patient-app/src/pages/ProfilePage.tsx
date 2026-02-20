@@ -1,29 +1,50 @@
-import { useState } from 'react';
-import { LogOut, Lock, Bell, BellOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { LogOut, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { mockUser, mockPatientProfile } from '@/lib/mockData';
+import { api } from '@/lib/api';
+
+interface PatientProfile {
+  id: string;
+  dateOfBirth?: string;
+  cancerType?: string;
+  planName?: string;
+  chemoStartDate?: string;
+  chemoEndDate?: string;
+  user: { firstName: string; lastName: string; email: string; phone?: string };
+}
 
 export function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, patientId, logout } = useAuth();
   const navigate = useNavigate();
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [notifications, setNotifications] = useState({
     dailyReminders: true,
     educationUpdates: true,
     weeklySummary: false,
   });
 
-  const displayUser = user || mockUser;
-  const initials = `${displayUser.firstName[0]}${displayUser.lastName[0]}`;
+  useEffect(() => {
+    if (!patientId) return;
+    api.get<PatientProfile>(`/patients/${patientId}`).then(setProfile).catch(() => {});
+  }, [patientId]);
+
+  const displayUser = user || { firstName: '', lastName: '', email: '' };
+  const initials = displayUser.firstName && displayUser.lastName
+    ? `${displayUser.firstName[0]}${displayUser.lastName[0]}`
+    : '?';
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleSave = async () => {
+    // Save profile changes (using fields from the form would need refs/state - keeping simple for now)
   };
 
   return (
@@ -39,7 +60,7 @@ export function ProfilePage() {
               {displayUser.firstName} {displayUser.lastName}
             </h1>
             <p className="text-sm text-[#64748B]">
-              Patient since {new Date(mockUser.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              Patient Portal
             </p>
           </div>
         </div>
@@ -65,15 +86,11 @@ export function ProfilePage() {
               </div>
               <div className="space-y-2">
                 <Label>Phone</Label>
-                <Input defaultValue={mockUser.phone || ''} type="tel" />
+                <Input defaultValue={profile?.user?.phone || ''} type="tel" />
               </div>
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
-                <Input defaultValue={mockPatientProfile.dateOfBirth} type="date" />
-              </div>
-              <div className="space-y-2">
-                <Label>Location</Label>
-                <Input defaultValue={mockPatientProfile.location} />
+                <Input defaultValue={profile?.dateOfBirth ? profile.dateOfBirth.split('T')[0] : ''} type="date" />
               </div>
             </div>
             <Button size="sm">Save Changes</Button>
@@ -89,21 +106,23 @@ export function ProfilePage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Treatment Plan</p>
-                <p className="mt-1 text-sm text-[#0F172A]">{mockPatientProfile.planName}</p>
+                <p className="mt-1 text-sm text-[#0F172A]">{profile?.planName || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Chemo Day</p>
-                <p className="mt-1 text-sm text-[#0F172A]">{mockPatientProfile.chemoDay}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Next Chemo Date</p>
+                <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Chemo Start</p>
                 <p className="mt-1 text-sm text-[#0F172A]">
-                  {new Date(mockPatientProfile.nextChemoDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  {profile?.chemoStartDate ? new Date(profile.chemoStartDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Chemo End</p>
+                <p className="mt-1 text-sm text-[#0F172A]">
+                  {profile?.chemoEndDate ? new Date(profile.chemoEndDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A'}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider text-[#64748B]">Cancer Type</p>
-                <p className="mt-1 text-sm text-[#0F172A]">{mockPatientProfile.cancerType}</p>
+                <p className="mt-1 text-sm text-[#0F172A]">{profile?.cancerType || 'N/A'}</p>
               </div>
             </div>
           </CardContent>

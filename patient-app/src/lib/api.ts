@@ -1,5 +1,4 @@
 const API_BASE_URL = '/api';
-export const USE_MOCK = true;
 
 async function request<T>(
   endpoint: string,
@@ -18,7 +17,8 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `API Error: ${response.status} ${response.statusText}`);
   }
 
   return response.json();
@@ -30,6 +30,8 @@ export const api = {
     request<T>(endpoint, { method: 'POST', body: JSON.stringify(data) }),
   put: <T>(endpoint: string, data: unknown) =>
     request<T>(endpoint, { method: 'PUT', body: JSON.stringify(data) }),
+  patch: <T>(endpoint: string, data: unknown) =>
+    request<T>(endpoint, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: <T>(endpoint: string) =>
     request<T>(endpoint, { method: 'DELETE' }),
 };

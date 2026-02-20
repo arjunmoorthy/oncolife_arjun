@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare } from 'lucide-react';
-import { SeverityLevel } from '@oncolife/shared';
+import { SeverityLevel, TriageLevel } from '@oncolife/shared';
 import { cn } from '@/lib/utils';
-import {
-  MOCK_PATIENTS, getTimelineForPatient, getConversationsForPatient, getCheckInsForPatient,
-} from '@/lib/mockData';
+import type { MockPatient, MockConversation, MockCheckIn, MockTimelinePoint } from '@/lib/mockData';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,16 +24,91 @@ const severityColors: Record<string, string> = {
   [SeverityLevel.MILD]: 'border-l-green-500 bg-green-50',
 };
 
+function toMockPatient(p: any): MockPatient {
+  return {
+    id: p.id,
+    userId: p.userId,
+    firstName: p.user?.firstName ?? '',
+    lastName: p.user?.lastName ?? '',
+    mrn: p.mrn ?? '',
+    dateOfBirth: p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '',
+    cancerType: p.cancerType ?? '',
+    planName: p.planName ?? '',
+    chemoStartDate: p.chemoStartDate ? new Date(p.chemoStartDate).toLocaleDateString() : '',
+    chemoEndDate: p.chemoEndDate ? new Date(p.chemoEndDate).toLocaleDateString() : '',
+    phone: p.user?.phone ?? '',
+    email: p.user?.email ?? '',
+    lastChatbot: '',
+    lastChemo: p.chemoStartDate ? new Date(p.chemoStartDate).toLocaleDateString() : 'N/A',
+    severity: p.alerts?.[0]?.triageLevel ?? TriageLevel.NONE,
+    providerId: '',
+  };
+}
+
+function toMockConversation(c: any): MockConversation {
+  return {
+    id: c.id,
+    patientId: c.patientId,
+    date: new Date(c.startedAt).toLocaleDateString(),
+    symptoms: c.sessionSummary?.symptoms ?? [],
+    severity: c.sessionSummary?.severity ?? SeverityLevel.MILD,
+    triageLevel: c.sessionSummary?.triageLevel ?? TriageLevel.NONE,
+    status: c.completedAt ? 'complete' : 'in_progress',
+    messages: [],
+  };
+}
+
+function toMockCheckIn(ci: any): MockCheckIn {
+  return {
+    id: ci.id,
+    patientId: ci.patientId,
+    date: new Date(ci.date).toLocaleDateString(),
+    severity: ci.severity ?? SeverityLevel.MILD,
+    summaryText: ci.summaryText ?? '',
+    symptoms: ci.symptoms ?? [],
+    patientQuote: ci.patientQuote,
+  };
+}
+
 export function PatientDashboardPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const patient = MOCK_PATIENTS.find((p) => p.id === id);
 
+  const [patient, setPatient] = useState<MockPatient | null>(null);
+  const [conversations, setConversations] = useState<MockConversation[]>([]);
+  const [checkIns, setCheckIns] = useState<MockCheckIn[]>([]);
+  const [timeline, setTimeline] = useState<MockTimelinePoint[]>([]);
+  const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState('2026-02-14');
   const [endDate, setEndDate] = useState('2026-02-20');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [expandedConv, setExpandedConv] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    Promise.all([
+      api.get<any>(`/patients/${id}`),
+      api.get<any[]>(`/patients/${id}/conversations`),
+      api.get<any[]>(`/patients/${id}/check-ins`),
+    ]).then(([p, convs, cis]) => {
+      setPatient(toMockPatient(p));
+      setConversations(convs.map(toMockConversation));
+      const mockCis = cis.map(toMockCheckIn);
+      setCheckIns(mockCis);
+      // Build timeline from check-ins
+      setTimeline(mockCis.map((ci) => ({ date: ci.date })));
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <p className="text-lg font-medium text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
 
   if (!patient) {
     return (
@@ -46,10 +120,6 @@ export function PatientDashboardPage() {
       </div>
     );
   }
-
-  const timeline = getTimelineForPatient(patient.id);
-  const conversations = getConversationsForPatient(patient.id);
-  const checkIns = getCheckInsForPatient(patient.id);
 
   const toggleSymptom = (s: string) => {
     setSelectedSymptoms((prev) =>

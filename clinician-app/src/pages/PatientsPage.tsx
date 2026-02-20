@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Plus, Search } from 'lucide-react';
 import { TriageLevel } from '@oncolife/shared';
-import { MOCK_PATIENTS, MOCK_ALERTS } from '@/lib/mockData';
+import type { MockPatient } from '@/lib/mockData';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,18 +13,42 @@ import { StatCards } from '@/components/patients/StatCards';
 import { PatientTable } from '@/components/patients/PatientTable';
 import { AddPatientModal } from '@/components/patients/AddPatientModal';
 
+function toMockPatient(p: any): MockPatient {
+  const latestCheckIn = p.dailyCheckIns?.[0];
+  const highestAlert = p.alerts?.[0];
+  return {
+    id: p.id,
+    userId: p.userId,
+    firstName: p.user?.firstName ?? '',
+    lastName: p.user?.lastName ?? '',
+    mrn: p.mrn ?? '',
+    dateOfBirth: p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '',
+    cancerType: p.cancerType ?? '',
+    planName: p.planName ?? '',
+    chemoStartDate: p.chemoStartDate ? new Date(p.chemoStartDate).toLocaleDateString() : '',
+    chemoEndDate: p.chemoEndDate ? new Date(p.chemoEndDate).toLocaleDateString() : '',
+    phone: p.user?.phone ?? '',
+    email: p.user?.email ?? '',
+    lastChatbot: latestCheckIn ? new Date(latestCheckIn.date).toLocaleDateString() : 'Never',
+    lastChemo: p.chemoStartDate ? new Date(p.chemoStartDate).toLocaleDateString() : 'N/A',
+    severity: highestAlert?.triageLevel ?? TriageLevel.NONE,
+    providerId: '',
+    navigatorId: undefined,
+  };
+}
+
 export function PatientsPage() {
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [checkinFilter, setCheckinFilter] = useState<string>('all');
   const [addOpen, setAddOpen] = useState(false);
-  const [patients, setPatients] = useState(MOCK_PATIENTS);
+  const [patients, setPatients] = useState<MockPatient[]>([]);
+  const [alertCount, setAlertCount] = useState(0);
 
-  const todayAlerts = MOCK_ALERTS.filter((a) => {
-    const d = new Date(a.createdAt);
-    const today = new Date();
-    return d.toDateString() === today.toDateString() && !a.acknowledged;
-  });
+  useEffect(() => {
+    api.get<any[]>('/patients').then((data) => setPatients(data.map(toMockPatient))).catch(() => {});
+    api.get<any[]>('/alerts').then((data) => setAlertCount(data.length)).catch(() => {});
+  }, []);
 
   const filteredPatients = useMemo(() => {
     let result = patients;
@@ -57,30 +82,26 @@ export function PatientsPage() {
     return result;
   }, [patients, search, severityFilter, checkinFilter]);
 
-  const handleAddPatient = (data: {
+  const handleAddPatient = async (data: {
     firstName: string; lastName: string; dob: string;
     mrn: string; providerId: string; navigatorId?: string;
   }) => {
-    const newPatient = {
-      id: `P${String(patients.length + 1).padStart(3, '0')}`,
-      userId: `u-p${String(patients.length + 1).padStart(3, '0')}`,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      mrn: data.mrn,
-      dateOfBirth: data.dob,
-      cancerType: 'Not Specified',
-      planName: '',
-      chemoStartDate: '',
-      chemoEndDate: '',
-      phone: '',
-      email: '',
-      lastChatbot: 'Never',
-      lastChemo: 'N/A',
-      severity: TriageLevel.NONE,
-      providerId: data.providerId,
-      navigatorId: data.navigatorId,
-    };
-    setPatients([...patients, newPatient]);
+    try {
+      const created = await api.post<any>('/patients', {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: `${data.firstName.toLowerCase()}.${data.lastName.toLowerCase()}@patient.oncolife.dev`,
+        mrn: data.mrn,
+        dateOfBirth: data.dob || undefined,
+        providerId: data.providerId || undefined,
+        navigatorId: data.navigatorId || undefined,
+      });
+      // Refetch patients
+      const refreshed = await api.get<any[]>('/patients');
+      setPatients(refreshed.map(toMockPatient));
+    } catch (err) {
+      console.error('Failed to add patient:', err);
+    }
   };
 
   return (
@@ -95,8 +116,8 @@ export function PatientsPage() {
 
       <StatCards
         totalPatients={patients.length}
-        alertsToday={todayAlerts.length}
-        pendingReviews={2}
+        alertsToday={alertCount}
+        pendingReviews={0}
       />
 
       {/* Search & Filters */}

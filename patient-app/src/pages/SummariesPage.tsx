@@ -1,12 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { mockSummaries } from '@/lib/mockData';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { SeverityLevel } from '@oncolife/shared';
 import { cn } from '@/lib/utils';
+
+interface Summary {
+  id: string;
+  conversationId: string;
+  patientId: string;
+  summaryText: string;
+  patientAddedNotes?: string;
+  recommendations: string[];
+  educationLinks: string[];
+  createdAt: string;
+}
 
 const severityStyles: Record<string, string> = {
   [SeverityLevel.MILD]: 'bg-green-100 text-green-700 border-green-200',
@@ -15,10 +27,22 @@ const severityStyles: Record<string, string> = {
 };
 
 export function SummariesPage() {
+  const { patientId } = useAuth();
+  const [summaries, setSummaries] = useState<Summary[]>([]);
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
+  const [loadingData, setLoadingData] = useState(true);
 
-  const filtered = mockSummaries.filter((s) => {
+  useEffect(() => {
+    if (!patientId) return;
+    setLoadingData(true);
+    api.get<Summary[]>(`/patients/${patientId}/summaries`)
+      .then(setSummaries)
+      .catch(() => {})
+      .finally(() => setLoadingData(false));
+  }, [patientId]);
+
+  const filtered = summaries.filter((s) => {
     if (search && !s.summaryText.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
@@ -60,7 +84,11 @@ export function SummariesPage() {
 
         {/* Summary Cards */}
         <div className="space-y-4">
-          {filtered.length === 0 ? (
+          {loadingData ? (
+            <div className="py-16 text-center">
+              <p className="text-[#64748B]">Loading summaries...</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-[#64748B]">No summaries found.</p>
             </div>
@@ -79,16 +107,6 @@ export function SummariesPage() {
                             year: 'numeric',
                           })}
                         </span>
-                        {summary.severity && (
-                          <Badge
-                            className={cn(
-                              'border text-xs',
-                              severityStyles[summary.severity] || '',
-                            )}
-                          >
-                            {summary.severity}
-                          </Badge>
-                        )}
                       </div>
 
                       <p className="text-sm leading-relaxed text-[#0F172A]">
@@ -97,15 +115,15 @@ export function SummariesPage() {
 
                       {summary.patientAddedNotes && (
                         <p className="text-sm italic text-[#64748B]">
-                          "{summary.patientAddedNotes}"
+                          &ldquo;{summary.patientAddedNotes}&rdquo;
                         </p>
                       )}
 
-                      {summary.symptoms && summary.symptoms.length > 0 && (
+                      {Array.isArray(summary.recommendations) && summary.recommendations.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
-                          {summary.symptoms.map((sym) => (
-                            <Badge key={sym} variant="secondary" className="text-xs">
-                              {sym}
+                          {(summary.recommendations as string[]).map((rec, i) => (
+                            <Badge key={i} variant="secondary" className="text-xs">
+                              {rec}
                             </Badge>
                           ))}
                         </div>

@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ConversationPhase, MessageType } from '@oncolife/shared';
-import { SYMPTOM_DEFINITIONS } from '@oncolife/shared';
 import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { ChatBubble } from './ChatBubble';
 import { SymptomSelector } from './SymptomSelector';
 import { EmergencyCheck } from './EmergencyCheck';
@@ -20,26 +20,82 @@ interface ChatMessage {
   timestamp: string;
 }
 
+interface EngineResponse {
+  phase: ConversationPhase;
+  message: string;
+  messageType: MessageType;
+  options?: string[];
+  isComplete?: boolean;
+  isEmergency?: boolean;
+  summary?: {
+    summaryText: string;
+    recommendations: string[];
+    educationLinks: string[];
+  };
+}
+
+function toOptionObjects(options?: string[]): { label: string; value: string }[] | undefined {
+  if (!options || options.length === 0) return undefined;
+  return options.map((o) => ({ label: o, value: o }));
+}
+
 export function ChatView() {
-  const { user } = useAuth();
+  const { patientId } = useAuth();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [phase, setPhase] = useState<ConversationPhase>(ConversationPhase.DISCLAIMER);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isEmergency, setIsEmergency] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [summaryData, setSummaryData] = useState<{ summaryText: string; recommendations: string[] } | null>(null);
   const [summarySubmitted, setSummarySubmitted] = useState(false);
+  const startedRef = useRef(false);
 
+  const addBotFromEngine = useCallback((er: EngineResponse) => {
+    setPhase(er.phase);
+    if (er.isEmergency) setIsEmergency(true);
+    if (er.summary) setSummaryData({ summaryText: er.summary.summaryText, recommendations: er.summary.recommendations });
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `bot-${Date.now()}`,
+        role: 'BOT',
+        content: er.message,
+        messageType: er.messageType,
+        options: toOptionObjects(er.options),
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  }, []);
+
+  // Start conversation on mount
   useEffect(() => {
-    const greeting: ChatMessage = {
-      id: 'greeting',
-      role: 'BOT',
-      content: `Hi ${user?.firstName || 'there'}! 👋 I'm Ruby, your symptom management assistant. Before we begin, I need to check — are you experiencing any emergency symptoms?`,
-      messageType: MessageType.TEXT,
-      timestamp: new Date().toISOString(),
+    if (!patientId || startedRef.current) return;
+    startedRef.current = true;
+
+    const start = async () => {
+      setLoading(true);
+      try {
+        const res = await api.post<{
+          id: string;
+          phase: ConversationPhase;
+          engineResponse: EngineResponse;
+        }>('/conversations', { patientId });
+        setConversationId(res.id);
+        addBotFromEngine(res.engineResponse);
+      } catch {
+        setMessages([{
+          id: 'error',
+          role: 'BOT',
+          content: 'Sorry, I couldn\'t start a conversation. Please try refreshing the page.',
+          timestamp: new Date().toISOString(),
+        }]);
+      } finally {
+        setLoading(false);
+      }
     };
-    setMessages([greeting]);
-    setPhase(ConversationPhase.EMERGENCY_CHECK);
-  }, [user?.firstName]);
+    start();
+  }, [patientId, addBotFromEngine]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -48,76 +104,65 @@ export function ChatView() {
     });
   }, [messages, phase]);
 
-  const addBotMessage = (content: string, type?: MessageType, options?: { label: string; value: string }[]) => {
-    setLoading(true);
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `bot-${Date.now()}`,
-          role: 'BOT',
-          content,
-          messageType: type,
-          options,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      setLoading(false);
-    }, 600);
-  };
-
-  const addPatientMessage = (content: string) => {
+  const sendResponse = async (content: string, selectedOption?: string) => {
+    if (!conversationId) return;
+    // Add patient message
     setMessages((prev) => [
       ...prev,
-      {
-        id: `patient-${Date.now()}`,
-        role: 'PATIENT',
-        content,
-        timestamp: new Date().toISOString(),
-      },
+      { id: `patient-${Date.now()}`, role: 'PATIENT', content, timestamp: new Date().toISOString() },
     ]);
+    setLoading(true);
+    try {
+      const er = await api.post<EngineResponse>(`/conversations/${conversationId}/respond`, {
+        content,
+        selectedOption,
+      });
+      addBotFromEngine(er);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { id: `err-${Date.now()}`, role: 'BOT', content: 'Something went wrong. Please try again.', timestamp: new Date().toISOString() },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleEmergencySelect = (symptomId: string) => {
-    addPatientMessage(`Emergency: ${symptomId}`);
-    setIsEmergency(true);
-    setPhase(ConversationPhase.EMERGENCY);
+    sendResponse(`Emergency: ${symptomId}`, symptomId);
   };
 
   const handleEmergencyNone = () => {
-    addPatientMessage('No emergency symptoms');
-    setPhase(ConversationPhase.SYMPTOM_SELECTION);
-    addBotMessage("Great, glad to hear that. Now let's check in on how you're feeling. Please select any symptoms you're experiencing.");
+    sendResponse('No emergency symptoms', 'none');
   };
 
   const handleSymptomSubmit = (selectedIds: string[]) => {
-    const names = selectedIds
-      .map((id) => SYMPTOM_DEFINITIONS.find((s) => s.id === id)?.name || id)
-      .join(', ');
-    addPatientMessage(names);
-    setPhase(ConversationPhase.SCREENING);
-    addBotMessage(
-      `Let's talk about your ${SYMPTOM_DEFINITIONS.find((s) => s.id === selectedIds[0])?.name || 'symptom'}. How would you rate the severity?`,
-      MessageType.OPTION_SELECT,
-      [
-        { label: 'Mild', value: 'mild' },
-        { label: 'Moderate', value: 'moderate' },
-        { label: 'Severe', value: 'severe' },
-      ],
-    );
+    sendResponse(selectedIds.join(','), selectedIds.join(','));
   };
 
   const handleAnswer = (answer: string) => {
-    addPatientMessage(answer);
-    setPhase(ConversationPhase.SUMMARY);
-    addBotMessage("Thank you for sharing. Here's a summary of our conversation today.");
+    sendResponse(answer, answer);
   };
 
-  const handleSummarySubmit = (patientNotes: string) => {
-    if (patientNotes) addPatientMessage(patientNotes);
+  const handleSummarySubmit = async (patientNotes: string) => {
+    if (!conversationId || !summaryData) return;
     setSummarySubmitted(true);
-    setPhase(ConversationPhase.COMPLETED);
-    addBotMessage("Your summary has been submitted and shared with your care team. Take care, and don't hesitate to check in again! 💚");
+    try {
+      await api.post(`/conversations/${conversationId}/summary`, {
+        summaryText: summaryData.summaryText,
+        patientAddedNotes: patientNotes || undefined,
+        recommendations: summaryData.recommendations,
+        educationLinks: [],
+      });
+    } catch {
+      // Summary save failed — still allow completion
+    }
+    // Send a final response to advance to COMPLETED
+    if (patientNotes) {
+      sendResponse(patientNotes, 'submit_summary');
+    } else {
+      sendResponse('Summary submitted', 'submit_summary');
+    }
   };
 
   const lastBotMsg = [...messages].reverse().find((m) => m.role === 'BOT');
@@ -153,18 +198,18 @@ export function ChatView() {
       {/* Input area */}
       <div className="border-t bg-white px-4 py-4">
         <div className="mx-auto max-w-2xl">
-          {phase === ConversationPhase.EMERGENCY_CHECK && (
+          {phase === ConversationPhase.EMERGENCY_CHECK && !loading && (
             <EmergencyCheck
               onSelect={handleEmergencySelect}
               onNone={handleEmergencyNone}
             />
           )}
 
-          {phase === ConversationPhase.SYMPTOM_SELECTION && (
+          {phase === ConversationPhase.SYMPTOM_SELECTION && !loading && (
             <SymptomSelector onSubmit={handleSymptomSubmit} />
           )}
 
-          {phase === ConversationPhase.SCREENING && !loading && lastBotMsg?.options && (
+          {(phase === ConversationPhase.SCREENING || phase === ConversationPhase.FOLLOW_UP || phase === ConversationPhase.DISCLAIMER || phase === ConversationPhase.PATIENT_CONTEXT) && !loading && lastBotMsg?.options && (
             <QuestionRenderer
               messageType={lastBotMsg.messageType || MessageType.TEXT}
               options={lastBotMsg.options}
@@ -172,10 +217,17 @@ export function ChatView() {
             />
           )}
 
-          {phase === ConversationPhase.SUMMARY && !summarySubmitted && (
+          {(phase === ConversationPhase.SCREENING || phase === ConversationPhase.FOLLOW_UP || phase === ConversationPhase.DISCLAIMER || phase === ConversationPhase.PATIENT_CONTEXT) && !loading && !lastBotMsg?.options && lastBotMsg?.messageType !== MessageType.SUMMARY && (
+            <QuestionRenderer
+              messageType={lastBotMsg?.messageType || MessageType.TEXT}
+              onAnswer={handleAnswer}
+            />
+          )}
+
+          {phase === ConversationPhase.SUMMARY && !summarySubmitted && summaryData && (
             <SummaryCard
-              summaryText="Patient reported moderate nausea for 3 days and mild fatigue. Anti-nausea medication partially effective. Oral intake maintained but reduced."
-              recommendations={['Continue anti-nausea medication', 'Try ginger tea', 'Small frequent meals']}
+              summaryText={summaryData.summaryText}
+              recommendations={summaryData.recommendations}
               onSubmit={handleSummarySubmit}
             />
           )}

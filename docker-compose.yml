@@ -12,6 +12,49 @@ services:
       - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: oncolife-server
+    ports:
+      - '3001:3001'
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/oncolife
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production
+      PORT: '3001'
+      NODE_ENV: production
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  patient-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.patient
+    container_name: oncolife-patient
+    ports:
+      - '3000:80'
+    depends_on:
+      - server
+
+  clinician-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.clinician
+    container_name: oncolife-clinician
+    ports:
+      - '3002:80'
+    depends_on:
+      - server
 
 volumes:
   pgdata:

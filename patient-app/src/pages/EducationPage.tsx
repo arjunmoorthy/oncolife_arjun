@@ -1,27 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Clock, BookOpen, Bookmark, Star } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { mockEducationResources } from '@/lib/mockData';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const priorityStyles: Record<string, string> = {
-  high: 'bg-red-100 text-red-700 border-red-200',
-  medium: 'bg-amber-100 text-amber-700 border-amber-200',
-  low: 'bg-green-100 text-green-700 border-green-200',
-};
+interface EducationResource {
+  id: string;
+  title: string;
+  description?: string;
+  content: string;
+  category: string;
+  readTimeMinutes?: number;
+  priority?: number;
+  symptoms: string[];
+  createdAt: string;
+}
 
 export function EducationPage() {
+  const [resources, setResources] = useState<EducationResource[]>([]);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'symptoms'>('symptoms');
+  const [filter, setFilter] = useState<'all' | 'symptoms'>('all');
+  const [loadingData, setLoadingData] = useState(true);
 
-  const filtered = mockEducationResources.filter((r) => {
-    if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !r.description.toLowerCase().includes(search.toLowerCase())) {
+  useEffect(() => {
+    setLoadingData(true);
+    api.get<EducationResource[]>('/education')
+      .then(setResources)
+      .catch(() => {})
+      .finally(() => setLoadingData(false));
+  }, []);
+
+  const filtered = resources.filter((r) => {
+    if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !(r.description || '').toLowerCase().includes(search.toLowerCase())) {
       return false;
     }
-    if (filter === 'symptoms' && r.relatedSymptoms.length === 0) return false;
+    if (filter === 'symptoms' && (!Array.isArray(r.symptoms) || r.symptoms.length === 0)) return false;
     return true;
   });
 
@@ -67,7 +83,11 @@ export function EducationPage() {
 
         {/* Resource Cards */}
         <div className="grid gap-4 md:grid-cols-2">
-          {filtered.length === 0 ? (
+          {loadingData ? (
+            <div className="col-span-full py-16 text-center">
+              <p className="text-[#64748B]">Loading resources...</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="col-span-full py-16 text-center">
               <BookOpen className="mx-auto mb-3 h-10 w-10 text-[#64748B]" />
               <p className="text-[#64748B]">No resources found.</p>
@@ -81,24 +101,25 @@ export function EducationPage() {
                       <h3 className="text-base font-semibold text-[#0F172A] leading-tight">
                         {resource.title}
                       </h3>
-                      {resource.isNew && (
-                        <Badge className="shrink-0 bg-primary text-white text-xs">New</Badge>
-                      )}
                     </div>
 
-                    <p className="text-sm text-[#64748B] leading-relaxed line-clamp-2">
-                      {resource.description}
-                    </p>
+                    {resource.description && (
+                      <p className="text-sm text-[#64748B] leading-relaxed line-clamp-2">
+                        {resource.description}
+                      </p>
+                    )}
 
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="secondary" className="text-xs">
                         {resource.category}
                       </Badge>
-                      <span className="flex items-center gap-1 text-xs text-[#64748B]">
-                        <Clock className="h-3 w-3" />
-                        {resource.readTime}
-                      </span>
-                      {resource.priority === 'high' && (
+                      {resource.readTimeMinutes && (
+                        <span className="flex items-center gap-1 text-xs text-[#64748B]">
+                          <Clock className="h-3 w-3" />
+                          {resource.readTimeMinutes} min
+                        </span>
+                      )}
+                      {resource.priority != null && resource.priority <= 1 && (
                         <span className="flex items-center gap-1 text-xs text-amber-600">
                           <Star className="h-3 w-3 fill-amber-500" />
                           Recommended

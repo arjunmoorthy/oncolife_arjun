@@ -20,19 +20,11 @@ export function LoginPage() {
     setError('');
     setLoading(true);
 
-    // Mock login — accept any credentials for now
     try {
-      await new Promise((r) => setTimeout(r, 500));
-      login('mock-token-clinician', {
-        id: 'c001',
-        email: email || 'sarah.chen@oncology.com',
-        firstName: 'Sarah',
-        lastName: 'Chen',
-        role: 'PROVIDER',
-      });
+      await login(email, password);
       navigate('/patients');
-    } catch {
-      setError('Invalid credentials. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Invalid credentials. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -78,7 +70,7 @@ export function LoginPage() {
             </Button>
           </form>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Demo: Enter any email/password to sign in
+            Default: admin@test.com / Admin1234!
           </p>
         </CardContent>
       </Card>

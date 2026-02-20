@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { mockUser } from '@/lib/mockData';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -25,18 +24,14 @@ export function LoginPage() {
     }
 
     setLoading(true);
-    // Mock login — accept any credentials
-    setTimeout(() => {
-      login('mock-jwt-token', {
-        id: mockUser.id,
-        email: mockUser.email,
-        firstName: mockUser.firstName,
-        lastName: mockUser.lastName,
-        role: 'PATIENT',
-      });
-      setLoading(false);
+    try {
+      await login(email, password);
       navigate('/');
-    }, 800);
+    } catch (err: any) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
