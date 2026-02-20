@@ -150,6 +150,20 @@ export const SKIN_LOCATIONS = [
   'Other',
 ];
 
+export const FEVER_MEDS_OPTIONS = [
+  'Tylenol (Acetaminophen)',
+  'Advil/Motrin (Ibuprofen)',
+  'Aspirin',
+  'Other medication',
+  'None',
+];
+
+export const FEVER_DURATION_OPTIONS = [
+  'Just started today',
+  '1-2 days',
+  '3+ days',
+];
+
 export const FEVER_ASSOCIATED_SYMPTOMS = [
   'Heart rate over 100',
   'Nausea',
@@ -253,7 +267,6 @@ export const SYMPTOM_SELECTION_CATEGORIES = [
       { id: 'CON-210', label: 'Constipation' },
       { id: 'APP-209', label: 'No Appetite' },
       { id: 'MSO-208', label: 'Mouth Sores' },
-      { id: 'DEH-201', label: 'Dehydration' },
     ],
   },
   {

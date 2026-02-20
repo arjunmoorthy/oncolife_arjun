@@ -4,6 +4,8 @@ import {
   SEVERITY_OPTIONS,
   ORAL_INTAKE_OPTIONS_24H,
   FEVER_ASSOCIATED_SYMPTOMS,
+  FEVER_MEDS_OPTIONS,
+  FEVER_DURATION_OPTIONS,
   MEDS_COUGH,
   MUCUS_OPTIONS,
   DEHYDRATION_SIGNS,
@@ -27,57 +29,129 @@ import {
 
 // ── FEV-202 — Fever ───────────────────────────────────────────────
 
+/** Parse temperature from answer, auto-converting °C → °F when < 45. */
+function parseTemp(answer: string | number | undefined): number {
+  if (answer === undefined || answer === null) return 0;
+  const t = typeof answer === 'number' ? answer : parseFloat(String(answer));
+  if (isNaN(t)) return 0;
+  // Auto-convert °C to °F if value looks like Celsius
+  return t > 0 && t < 45 ? t * 9 / 5 + 32 : t;
+}
+
+/** Helper: get parsed temperature from FEV-202 answers. */
+function getFevTemp(answers: Record<string, any>): number {
+  return parseTemp(getAnswer(answers, 'FEV-202', 'temp'));
+}
+
 export const FEV_202: SymptomModuleDef = defineSymptom({
   symptomId: 'FEV-202',
   name: 'Fever',
   isHidden: false,
   screeningQuestions: [
-    { id: 'temperature', text: 'What is your temperature?', type: 'NUMBER' },
-    { id: 'duration', text: 'How long have you had a fever?', type: 'TEXT' },
-    { id: 'meds', text: 'What medications have you taken for the fever?', type: 'TEXT' },
     {
-      id: 'meds_other',
-      text: 'Please describe the other medication:',
+      id: 'temp',
+      text: 'Fever can be worrying. What is your temperature? (Enter number, e.g., 101.5)',
+      type: 'NUMBER',
+    },
+    {
+      id: 'fever_meds',
+      text: 'What medications have you taken to lower your temperature?',
+      type: 'CHOICE',
+      options: FEVER_MEDS_OPTIONS,
+    },
+    {
+      id: 'fever_meds_detail',
+      text: 'What did you take and how often?',
       type: 'TEXT',
       condition: (answers) => {
-        const m = getAnswer(answers, 'FEV-202', 'meds');
-        return m && m.toLowerCase().includes('other');
+        const m = getAnswer(answers, 'FEV-202', 'fever_meds');
+        return !!m && m !== 'None';
       },
     },
-    { id: 'associated', text: 'Are you experiencing any of these symptoms?', type: 'MULTISELECT', options: FEVER_ASSOCIATED_SYMPTOMS },
-    { id: 'eating_drinking', text: 'Are you eating and drinking normally?', type: 'YES_NO', options: YES_NO_OPTIONS },
-    { id: 'self_care', text: 'Are you able to perform daily self-care?', type: 'YES_NO', options: YES_NO_OPTIONS },
+    {
+      id: 'fever_duration',
+      text: 'How long have you had this fever?',
+      type: 'CHOICE',
+      options: FEVER_DURATION_OPTIONS,
+      condition: (answers) => getFevTemp(answers) > 100.3,
+    },
+    {
+      id: 'high_temp_symptoms',
+      text: 'Are you experiencing any of these additional symptoms?',
+      type: 'MULTISELECT',
+      options: FEVER_ASSOCIATED_SYMPTOMS,
+      condition: (answers) => getFevTemp(answers) > 100.3,
+    },
+    {
+      id: 'high_temp_symptoms_other',
+      text: 'Please describe the other symptom:',
+      type: 'TEXT',
+      condition: (answers) => {
+        if (getFevTemp(answers) <= 100.3) return false;
+        const syms: string[] = getAnswer(answers, 'FEV-202', 'high_temp_symptoms') || [];
+        return syms.includes('Other');
+      },
+    },
+    {
+      id: 'fever_intake',
+      text: 'Have you been able to eat/drink normally?',
+      type: 'CHOICE',
+      options: ORAL_INTAKE_OPTIONS_24H,
+      condition: (answers) => getFevTemp(answers) > 100.3,
+    },
+    {
+      id: 'fever_adl',
+      text: 'Are you able to perform daily self care like bathing, using the toilet, eating independently?',
+      type: 'YES_NO',
+      options: YES_NO_OPTIONS,
+      condition: (answers) => getFevTemp(answers) > 100.3,
+    },
   ],
   followUpQuestions: [],
   evaluateScreening: (answers) => {
-    let temp = parseDays(getAnswer(answers, 'FEV-202', 'temperature'));
-    // Auto-convert °C to °F if value < 45
-    if (temp > 0 && temp < 45) {
-      temp = temp * 9 / 5 + 32;
-    }
-    const associated: string[] = getAnswer(answers, 'FEV-202', 'associated') || [];
-    const eating = getAnswer(answers, 'FEV-202', 'eating_drinking');
+    const temp = getFevTemp(answers);
+    const meds = getAnswer(answers, 'FEV-202', 'fever_meds') as string | undefined;
+    const medsDetail = getAnswer(answers, 'FEV-202', 'fever_meds_detail') as string | undefined;
 
-    const alerts: string[] = [];
-    if (temp >= 100.3) alerts.push(`Fever ${temp.toFixed(1)}°F`);
-    if (associated.includes('Heart rate over 100')) alerts.push('Tachycardia');
-    if (associated.includes('Chills')) alerts.push('Rigors/chills');
-    if (associated.includes('Port redness')) alerts.push('Port redness');
-    if (eating === 'No') alerts.push('Unable to eat/drink');
-
-    const branches: string[] = [];
-    if (associated.includes('Vomiting')) branches.push('VOM-204');
-    if (eating === 'No' || associated.includes('Dizziness')) branches.push('DEH-201');
-
-    if (alerts.length > 0) {
+    // Low-grade: ≤ 100.3 → stop with NONE
+    if (temp <= 100.3) {
+      let message = `Temperature ${temp.toFixed(1)}°F is below fever threshold (100.3°F). `;
+      if (meds && meds !== 'None') {
+        message += `Patient taking ${meds}${medsDetail ? ': ' + medsDetail : ''}.`;
+      } else {
+        message += 'No fever medications taken.';
+      }
+      message += ' Continue to monitor temperature.';
       return {
-        action: branches.length > 0 ? 'branch' as const : 'stop' as const,
-        triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
-        alertMessage: alerts.join('; '),
-        branchTo: branches.length > 0 ? branches : undefined,
+        action: 'stop' as const,
+        triageLevel: TriageLevel.NONE,
+        alertMessage: message,
       };
     }
-    return branches.length > 0 ? branchResult(branches) : stopResult();
+
+    // High-grade: > 100.3 → stop with NOTIFY_CARE_TEAM
+    const duration = getAnswer(answers, 'FEV-202', 'fever_duration') as string | undefined;
+    const symptoms: string[] = getAnswer(answers, 'FEV-202', 'high_temp_symptoms') || [];
+
+    let message = `Fever ${temp.toFixed(1)}°F (Duration: ${duration || 'unknown'}). `;
+    if (meds && meds !== 'None') {
+      message += `Taking ${meds}${medsDetail ? ': ' + medsDetail : ''}. `;
+    } else {
+      message += 'No fever medications taken. ';
+    }
+
+    const filtered = symptoms.filter((s) => s !== 'None');
+    if (filtered.length > 0) {
+      message += `Associated symptoms: ${filtered.join(', ')}.`;
+    } else {
+      message += 'No additional symptoms reported.';
+    }
+
+    return {
+      action: 'stop' as const,
+      triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
+      alertMessage: message,
+    };
   },
   evaluateFollowUp: () => stopResult(),
 });
