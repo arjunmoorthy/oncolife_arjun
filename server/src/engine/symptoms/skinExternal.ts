@@ -4,6 +4,9 @@ import {
   SEVERITY_OPTIONS,
   SKIN_LOCATIONS,
   SWELLING_LOCATIONS,
+  SWELLING_SIDE,
+  SWELLING_ONSET,
+  SWELLING_TRIGGER,
   SWELLING_ASSOCIATED,
   EYE_SYMPTOMS,
   YES_NO_OPTIONS,
@@ -17,7 +20,6 @@ import {
   continueResult,
   stopResult,
   branchResult,
-  emergencyResult,
 } from './base';
 
 // ── SKI-212 — Skin Rash/Redness ──────────────────────────────────
@@ -67,9 +69,14 @@ export const SKI_212: SymptomModuleDef = defineSymptom({
     let temp = parseDays(getAnswer(answers, 'SKI-212', 'temperature'));
     if (temp > 0 && temp < 45) temp = temp * 9 / 5 + 32;
 
-    // Emergency: facial rash + trouble breathing
+    // Facial rash + trouble breathing → branch to URG-101 per spec
     if (locs.includes('Face') && facialBreathing) {
-      return emergencyResult('Facial rash with breathing difficulty — possible allergic reaction. Call 911.');
+      return {
+        action: 'branch' as const,
+        triageLevel: TriageLevel.CALL_911,
+        alertMessage: 'Facial Rash with Breathing Difficulty - possible allergic reaction. Seek immediate emergency care.',
+        branchTo: ['URG-101'],
+      };
     }
 
     const alerts: string[] = [];
@@ -119,54 +126,126 @@ export const SWE_214: SymptomModuleDef = defineSymptom({
   name: 'Swelling',
   isHidden: false,
   screeningQuestions: [
-    { id: 'locations', text: 'Where is the swelling?', type: 'MULTISELECT', options: SWELLING_LOCATIONS },
-    { id: 'one_both', text: 'Is the swelling in one side or both sides?', type: 'CHOICE', options: ['One side', 'Both sides'] },
-    { id: 'onset', text: 'When did the swelling start?', type: 'TEXT' },
-    { id: 'cause', text: 'Do you know what caused the swelling?', type: 'TEXT' },
-    { id: 'severity', text: 'Rate the swelling severity:', type: 'CHOICE', options: SEVERITY_OPTIONS },
-    { id: 'associated', text: 'Are you experiencing any of these?', type: 'MULTISELECT', options: SWELLING_ASSOCIATED },
-    { id: 'redness_over', text: 'Is there redness or warmth over the swelling?', type: 'YES_NO', options: YES_NO_OPTIONS },
-    { id: 'clot_history', text: 'Do you have a history of blood clots?', type: 'YES_NO', options: YES_NO_OPTIONS },
+    { id: 'swell_loc', text: 'Where is your swelling? (You can select more than one)', type: 'MULTISELECT', options: SWELLING_LOCATIONS },
+    {
+      id: 'swell_loc_other',
+      text: 'Please describe the location:',
+      type: 'TEXT',
+      condition: (answers) => {
+        const locs: string[] = getAnswer(answers, 'SWE-214', 'swell_loc') || [];
+        return locs.includes('Other');
+      },
+    },
+    { id: 'swell_side', text: 'Is the swelling on one side or both?', type: 'CHOICE', options: SWELLING_SIDE },
+    { id: 'swell_onset', text: 'When did the swelling start?', type: 'CHOICE', options: SWELLING_ONSET },
+    { id: 'swell_trigger', text: 'Did the swelling start after any of the following? (Select all that apply)', type: 'MULTISELECT', options: SWELLING_TRIGGER },
+    { id: 'severity', text: 'Rate your swelling:', type: 'CHOICE', options: SEVERITY_OPTIONS },
+    { id: 'swell_associated', text: 'Are you also noticing any of these today? (Select all that apply)', type: 'MULTISELECT', options: SWELLING_ASSOCIATED },
+    { id: 'redness', text: 'Is there any redness where you have swelling?', type: 'YES_NO', options: YES_NO_OPTIONS },
   ],
-  followUpQuestions: [],
+  followUpQuestions: [
+    { id: 'swell_clots', text: 'Do you have a history of blood clots?', type: 'YES_NO', options: YES_NO_OPTIONS },
+  ],
   evaluateScreening: (answers) => {
-    const locs: string[] = getAnswer(answers, 'SWE-214', 'locations') || [];
-    const oneBoth = getAnswer(answers, 'SWE-214', 'one_both');
-    const associated: string[] = getAnswer(answers, 'SWE-214', 'associated') || [];
-    const redness = getAnswer(answers, 'SWE-214', 'redness_over') === 'Yes';
-    const clotHistory = getAnswer(answers, 'SWE-214', 'clot_history') === 'Yes';
+    const locs: string[] = getAnswer(answers, 'SWE-214', 'swell_loc') || [];
+    const side = getAnswer(answers, 'SWE-214', 'swell_side');
+    const onset = getAnswer(answers, 'SWE-214', 'swell_onset');
     const sev = parseSeverity(getAnswer(answers, 'SWE-214', 'severity'));
+    const associated: string[] = getAnswer(answers, 'SWE-214', 'swell_associated') || [];
+    const redness = getAnswer(answers, 'SWE-214', 'redness') === 'Yes';
 
-    const hasFaceNeckChest = locs.some(l => ['Face', 'Neck'].includes(l));
+    const isOneSided = side === 'One side';
+    const isSudden = onset === 'Today';
+    const hasCriticalLocation = locs.some(l =>
+      ['Neck or chest', 'Around my port', 'Near an IV site'].includes(l),
+    );
     const hasSob = associated.includes('Shortness of breath');
-    const hasChestDiscomfort = associated.includes('Chest discomfort');
+    const hasChest = associated.includes('Chest discomfort');
     const hasFever = associated.includes('Fever');
-    const unilateralLeg = locs.includes('Legs') && oneBoth === 'One side';
+    const hasRedness = associated.includes('Redness') || redness;
+    const isSevere = sev === 'SEVERE';
 
-    // Emergency: SOB or chest discomfort → DVT/PE concern
-    if (hasSob || hasChestDiscomfort) {
-      return emergencyResult('Swelling with SOB or chest discomfort — possible DVT/PE. Call 911.');
+    // SOB with swelling → branch to URG-101 for breathing emergency
+    if (hasSob) {
+      return {
+        action: 'branch' as const,
+        triageLevel: TriageLevel.CALL_911,
+        alertMessage: 'Swelling with shortness of breath. This may be an emergency.',
+        branchTo: ['URG-101'],
+      };
     }
 
-    const alerts: string[] = [];
-    if (hasFaceNeckChest) alerts.push('Face/neck swelling');
-    if (hasFever) alerts.push('Fever with swelling');
-    if (unilateralLeg) alerts.push('Unilateral leg swelling — DVT concern');
-    if (redness) alerts.push('Redness/warmth over swelling');
-    if (clotHistory) alerts.push('History of blood clots');
-    if (sev === 'SEVERE') alerts.push('Severe swelling');
+    // Build reasons for messaging
+    const reasons: string[] = [];
+    if (isOneSided) reasons.push('One-sided swelling');
+    if (isSudden) reasons.push('Sudden onset');
+    if (hasCriticalLocation) reasons.push('Neck/chest/port/IV site involvement');
+    if (hasChest) reasons.push('Chest discomfort');
+    if (hasFever) reasons.push('Fever');
+    if (hasRedness) reasons.push('Redness');
+    if (isSevere) reasons.push('Severe swelling');
 
-    if (alerts.length > 0) {
+    // EMERGENT: one-sided+sudden, critical location, chest discomfort, fever, redness, severe
+    const emergentCondition =
+      (isOneSided && isSudden) ||
+      hasCriticalLocation ||
+      hasChest ||
+      hasFever ||
+      hasRedness ||
+      isSevere;
+
+    if (emergentCondition) {
+      return {
+        action: 'stop' as const,
+        triageLevel: TriageLevel.CALL_911,
+        alertMessage: `URGENT: Call 911 or your care team right away. ${reasons.join(', ')}.`,
+        severity: sev,
+      };
+    }
+
+    // One-sided OR sudden alone → NOTIFY_CARE_TEAM, continue to follow-up
+    if (isOneSided || isSudden) {
+      return {
+        action: 'continue' as const,
+        triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
+        alertMessage: `Swelling concern: ${reasons.join(', ')}. Contact your care team.`,
+        severity: sev,
+      };
+    }
+
+    // Moderate OR prolonged (2-3d, >3d) OR bilateral arm/leg → NOTIFY_CARE_TEAM
+    const hasArmLeg = locs.some(l =>
+      ['Arm(s) or hand(s)', 'Leg(s), ankle(s), or foot/feet'].includes(l),
+    );
+    const isBothSides = side === 'Both sides';
+    const isModerate = sev === 'MODERATE';
+    const isProlonged = onset === '2-3 days ago' || onset === 'More than 3 days ago';
+
+    if (isModerate || isProlonged || (hasArmLeg && isBothSides)) {
+      const notifyReasons: string[] = [];
+      if (isModerate) notifyReasons.push('Moderate swelling');
+      if (isProlonged) notifyReasons.push('Duration >2 days');
+      if (hasArmLeg && isBothSides) notifyReasons.push('Both sides arm/leg involvement');
+      return {
+        action: 'continue' as const,
+        triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
+        alertMessage: `Swelling: ${notifyReasons.join(', ')}.`,
+        severity: sev,
+      };
+    }
+
+    return continueResult();
+  },
+  evaluateFollowUp: (answers) => {
+    if (getAnswer(answers, 'SWE-214', 'swell_clots') === 'Yes') {
       return {
         action: 'stop' as const,
         triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
-        alertMessage: alerts.join('; '),
-        severity: sev,
+        alertMessage: 'Swelling with history of blood clots - increased DVT risk.',
       };
     }
     return stopResult();
   },
-  evaluateFollowUp: () => stopResult(),
 });
 
 // ── EYE-207 — Eye Complaints ─────────────────────────────────────

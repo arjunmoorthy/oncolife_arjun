@@ -216,13 +216,37 @@ export const URINE_COLOR_OPTIONS = [
 ];
 
 export const SWELLING_LOCATIONS = [
-  'Face',
-  'Neck',
-  'Arms',
-  'Legs',
-  'Feet/Ankles',
-  'Abdomen',
+  'Face or eyes',
+  'Neck or chest',
+  'Around my port',
+  'Arm(s) or hand(s)',
+  'Belly or waist',
+  'Leg(s), ankle(s), or foot/feet',
+  'Near an IV site',
+  'Surgical area',
   'Other',
+];
+
+export const SWELLING_SIDE = [
+  'One side',
+  'Both sides',
+  'Not sure',
+];
+
+export const SWELLING_ONSET = [
+  'Today',
+  'Yesterday',
+  '2-3 days ago',
+  'More than 3 days ago',
+];
+
+export const SWELLING_TRIGGER = [
+  'Chemotherapy',
+  'Steroid medication',
+  'IV or infusion',
+  'Surgery',
+  'A long day of sitting or standing',
+  'Not sure',
 ];
 
 export const SWELLING_ASSOCIATED = [
@@ -230,7 +254,7 @@ export const SWELLING_ASSOCIATED = [
   'Chest discomfort',
   'Fever',
   'Redness',
-  'None',
+  'None of the above',
 ];
 
 export const EYE_SYMPTOMS = [
