@@ -1,19 +1,11 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
-
-function DashboardPage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-primary">OncoLife</h1>
-        <p className="mt-2 text-muted-foreground">Clinician Dashboard</p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          Patient monitoring and care coordination
-        </p>
-      </div>
-    </div>
-  );
-}
+import { AppLayout } from './components/layout/AppLayout';
+import { LoginPage } from './pages/LoginPage';
+import { PatientsPage } from './pages/PatientsPage';
+import { PatientDashboardPage } from './pages/PatientDashboardPage';
+import { AlertsPage } from './pages/AlertsPage';
+import { ProfilePage } from './pages/ProfilePage';
 
 function NotFound() {
   return (
@@ -31,12 +23,14 @@ export function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/patients" element={<div>Patients - Coming Soon</div>} />
-          <Route path="/patients/:id" element={<div>Patient Detail - Coming Soon</div>} />
-          <Route path="/alerts" element={<div>Alerts - Coming Soon</div>} />
-          <Route path="/staff" element={<div>Staff - Coming Soon</div>} />
-          <Route path="/login" element={<div>Login - Coming Soon</div>} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<Navigate to="/patients" replace />} />
+            <Route path="/patients" element={<PatientsPage />} />
+            <Route path="/patients/:id" element={<PatientDashboardPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
