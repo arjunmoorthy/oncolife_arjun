@@ -50,7 +50,7 @@ export const PAI_213: SymptomModuleDef = defineSymptom({
   evaluateScreening: (answers) => {
     const locations: string[] = getAnswer(answers, 'PAI-213', 'location') || [];
     if (locations.includes('Chest')) {
-      return emergencyResult('Chest pain reported — possible cardiac emergency. Call 911.');
+      return branchResult(['URG-102'], TriageLevel.CALL_911);
     }
     const branches: string[] = [];
     const locationMap: Record<string, string> = {
@@ -212,7 +212,7 @@ export const ABD_211: SymptomModuleDef = defineSymptom({
     { id: 'vomiting', text: 'Are you vomiting?', type: 'YES_NO', options: YES_NO_OPTIONS },
     { id: 'blood_stool_fu', text: 'Is there blood in your stool?', type: 'YES_NO', options: YES_NO_OPTIONS },
     { id: 'dehydration', text: 'Any signs of dehydration?', type: 'MULTISELECT', options: DEHYDRATION_SIGNS },
-    { id: 'last_bm', text: 'When was your last bowel movement?', type: 'TEXT' },
+    { id: 'last_bm', text: 'When was your last bowel movement?', type: 'CHOICE', options: ['Today', 'Yesterday', '2+ days ago'] },
   ],
   evaluateScreening: (answers) => {
     const sev = parseSeverity(getAnswer(answers, 'ABD-211', 'severity'));
@@ -238,9 +238,11 @@ export const ABD_211: SymptomModuleDef = defineSymptom({
   evaluateFollowUp: (answers) => {
     const vomiting = getAnswer(answers, 'ABD-211', 'vomiting') === 'Yes';
     const dehydration = getAnswer(answers, 'ABD-211', 'dehydration');
+    const lastBm = getAnswer(answers, 'ABD-211', 'last_bm');
     const branches: string[] = [];
     if (vomiting) branches.push('VOM-204');
     if (hasDehydrationSigns(dehydration)) branches.push('DEH-201');
+    if (lastBm === '2+ days ago') branches.push('CON-210');
     return branches.length > 0 ? branchResult(branches) : stopResult();
   },
 });

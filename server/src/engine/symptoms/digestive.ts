@@ -102,16 +102,30 @@ export const NAU_203: SymptomModuleDef = defineSymptom({
     const sevNoMeds = parseSeverity(getAnswer(answers, 'NAU-203', 'severity_no_meds'));
     const severity = sevWithMeds || sevNoMeds;
     const meds = getAnswer(answers, 'NAU-203', 'meds');
+    const duration = getAnswer(answers, 'NAU-203', 'duration');
+    const worsening = getAnswer(answers, 'NAU-203', 'worsening');
 
-    if (isCriticalIntake(intake) || (severity === 'SEVERE' && medsTaken(meds))) {
+    // Moderate nausea for >3 days and worsening/same (not improving)
+    const moderateChronicWorsening =
+      severity === 'MODERATE' &&
+      duration === 'More than 3 days' &&
+      (worsening === 'Worsening' || worsening === 'Same');
+
+    if (isCriticalIntake(intake) || (severity === 'SEVERE' && medsTaken(meds)) || moderateChronicWorsening) {
+      let alertMessage = '';
+      if (isCriticalIntake(intake)) {
+        alertMessage = 'Patient reports barely eating/drinking or unable to eat/drink.';
+      } else if (severity === 'SEVERE' && medsTaken(meds)) {
+        alertMessage = 'Severe nausea despite medication.';
+      } else {
+        alertMessage = 'Moderate nausea for >3 days and worsening/same.';
+      }
       return {
         action: 'continue',
         triageLevel: TriageLevel.NOTIFY_CARE_TEAM,
-        alertMessage: isCriticalIntake(intake)
-          ? 'Patient reports barely eating/drinking or unable to eat/drink.'
-          : 'Severe nausea despite medication.',
+        alertMessage,
         severity,
-        duration: getAnswer(answers, 'NAU-203', 'duration'),
+        duration,
         medicationsTried: meds,
       };
     }
@@ -341,7 +355,7 @@ export const CON_210: SymptomModuleDef = defineSymptom({
     const meds = getAnswer(answers, 'CON-210', 'meds');
 
     const alerts: string[] = [];
-    if (daysNoBm >= 3 && passingGas === 'No') alerts.push('No BM ≥3 days AND not passing gas');
+    if (daysNoBm >= 2) alerts.push('No BM for ≥2 days');
     if (abdSev === 'MODERATE' || abdSev === 'SEVERE') alerts.push('Moderate/severe abdominal pain');
     if (hasDehydrationSigns(dehydration)) alerts.push('Dehydration signs present');
 
