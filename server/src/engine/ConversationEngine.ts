@@ -24,6 +24,51 @@ import { getSymptomModule } from './symptoms';
 import { checkHardStops } from './hardStops';
 import { generateSummary } from './summaryGenerator';
 import { answerKey, parseSeverity } from './symptoms/base';
+import { validateNumericInput, getInputHint } from './inputValidation';
+
+// ── Dehydration Question Tracking ─────────────────────────────────
+// Maps question IDs across modules to normalized dehydration keys.
+// Questions with the same normalized key are considered equivalent
+// (e.g., MSO-208's "dark_urine" ≡ DEH-201's "urine_color" — both ask about urine color).
+
+const DEHYDRATION_QUESTION_MAP: Record<string, string> = {
+  // Urine color / dark urine questions
+  'urine_color': 'dark_urine',
+  'dark_urine': 'dark_urine',
+  // Less urine
+  'less_urine': 'less_urine',
+  'urine_less': 'less_urine',
+  'urine_amt': 'less_urine',
+  // Thirst
+  'thirsty': 'thirsty',
+  // Lightheadedness
+  'lightheaded': 'lightheaded',
+  // Vitals
+  'vitals': 'vitals',
+  'vitals_known': 'vitals',
+  // Dehydration signs multiselect (covers dark urine, less urine, thirsty, lightheaded)
+  'dehydration': 'dehydration_signs',
+  'dehydration_signs': 'dehydration_signs',
+};
+
+/**
+ * Returns the normalized dehydration key for a question ID, or null if
+ * the question is not dehydration-related.
+ */
+function getDehydrationKey(questionId: string): string | null {
+  // Direct match
+  if (DEHYDRATION_QUESTION_MAP[questionId]) {
+    return DEHYDRATION_QUESTION_MAP[questionId];
+  }
+  // Check for module-prefixed variants (e.g., mso_urine_dark → urine_dark → dark_urine)
+  const patterns = Object.keys(DEHYDRATION_QUESTION_MAP);
+  for (const pattern of patterns) {
+    if (questionId.endsWith(`_${pattern}`) || questionId.includes(pattern)) {
+      return DEHYDRATION_QUESTION_MAP[pattern];
+    }
+  }
+  return null;
+}
 
 // ── In-memory session store ──────────────────────────────────────
 const sessions = new Map<string, SessionState>();
@@ -65,7 +110,7 @@ export async function startConversation(
     answers: {},
     symptomResults: {},
     branchStack: [],
-    dehydrationQuestionsAsked: false,
+    dehydrationQuestionsAsked: [],
     patientContext: {},
     isEmergency: false,
   };
@@ -342,10 +387,38 @@ async function handleSymptomQuestion(
     return advanceToNextSymptom(state);
   }
 
-  // Store the answer
-  const key = answerKey(symptomId, q.id);
-  const value = extractAnswer(response, q);
-  state.answers[key] = value;
+  // Validate NUMBER inputs before storing
+  if (q.type === 'NUMBER') {
+    const rawValue = response.text ?? response.numberValue?.toString() ?? '';
+    const validation = validateNumericInput(q.id, String(rawValue));
+    if (!validation.valid) {
+      // Stay on the same question — don't advance
+      saveSession(state);
+      const hint = getInputHint(q.id);
+      return {
+        phase: state.phase,
+        message: `⚠️ ${validation.error}\n\n${q.text}`,
+        messageType: MessageType.NUMBER_INPUT,
+        progress: calculateProgress(state),
+        inputHint: hint,
+      };
+    }
+    // Store the (possibly auto-converted) value
+    const key = answerKey(symptomId, q.id);
+    state.answers[key] = validation.converted;
+  } else {
+    // Store non-numeric answers normally
+    const key = answerKey(symptomId, q.id);
+    const value = extractAnswer(response, q);
+    state.answers[key] = value;
+  }
+
+  // Track dehydration questions per normalized key
+  const dehKey = getDehydrationKey(q.id);
+  if (dehKey && !state.dehydrationQuestionsAsked.includes(dehKey)) {
+    state.dehydrationQuestionsAsked.push(dehKey);
+  }
+
   state.currentQuestionIndex++;
   saveSession(state);
 
@@ -407,7 +480,8 @@ async function handleEvalResult(
   // Branch to sub-modules
   if (evalResult.action === 'branch' && evalResult.branchTo?.length) {
     const branches = evalResult.branchTo.filter(id => {
-      if (id === 'DEH-201' && state.dehydrationQuestionsAsked) return false;
+      // Skip DEH-201 if all its key questions have already been asked
+      if (id === 'DEH-201' && state.dehydrationQuestionsAsked.length > 0) return false;
       return true;
     });
     if (branches.length > 0) {
@@ -433,11 +507,6 @@ async function handleEvalResult(
     await createAlert(state, evalResult.triageLevel, evalResult.alertMessage);
   }
 
-  // Mark dehydration as asked if this was DEH-201
-  if (symptomId === 'DEH-201') {
-    state.dehydrationQuestionsAsked = true;
-  }
-
   // Stop — advance to next symptom
   saveSession(state);
   return advanceToNextSymptom(state);
@@ -451,8 +520,8 @@ async function advanceToNextSymptom(
   // Check branch stack first
   if (state.branchStack.length > 0) {
     const nextBranch = state.branchStack.shift()!;
-    // Skip DEH-201 if already asked
-    if (nextBranch === 'DEH-201' && state.dehydrationQuestionsAsked) {
+    // Skip DEH-201 if dehydration questions already asked
+    if (nextBranch === 'DEH-201' && state.dehydrationQuestionsAsked.length > 0) {
       return advanceToNextSymptom(state);
     }
     state.currentQuestionIndex = 0;
@@ -541,6 +610,12 @@ function findNextQuestion(
       state.currentQuestionIndex = i + 1;
       continue;
     }
+    // DEH-201: Skip dehydration questions already asked in a prior module
+    const dehKey = getDehydrationKey(q.id);
+    if (dehKey && state.dehydrationQuestionsAsked.includes(dehKey)) {
+      state.currentQuestionIndex = i + 1;
+      continue;
+    }
     state.currentQuestionIndex = i;
     return q;
   }
@@ -568,13 +643,23 @@ function questionToResponse(state: SessionState, q: QuestionDef): EngineResponse
 
   const options = q.type === 'YES_NO' ? YES_NO_OPTIONS : q.options;
 
-  return {
+  const response: EngineResponse = {
     phase: state.phase,
     message: q.text,
     messageType,
     options,
     progress: calculateProgress(state),
   };
+
+  // Attach input hint for NUMBER questions
+  if (q.type === 'NUMBER') {
+    const hint = getInputHint(q.id);
+    if (hint) {
+      response.inputHint = hint;
+    }
+  }
+
+  return response;
 }
 
 function extractAnswer(response: PatientResponse, q: QuestionDef): any {

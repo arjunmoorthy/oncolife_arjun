@@ -19,7 +19,7 @@ export interface SessionState {
   answers: Record<string, any>;
   symptomResults: Record<string, SymptomResult>;
   branchStack: string[];
-  dehydrationQuestionsAsked: boolean;
+  dehydrationQuestionsAsked: string[];
   patientContext: {
     lastChemo?: string;
     nextVisit?: string;
@@ -47,6 +47,7 @@ export interface EngineResponse {
   isEmergency?: boolean;
   summary?: SessionSummaryData;
   educationLinks?: string[];
+  inputHint?: string;
 }
 
 export interface SessionSummaryData {

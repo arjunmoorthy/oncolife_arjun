@@ -4,59 +4,84 @@ import { getSymptomModule } from './symptoms';
 
 // ── Summary Generator ────────────────────────────────────────────
 
+const TRIAGE_PRIORITY: Record<string, number> = {
+  [TriageLevel.CALL_911]: 4,
+  [TriageLevel.URGENT]: 3,
+  [TriageLevel.NOTIFY_CARE_TEAM]: 2,
+  [TriageLevel.NONE]: 1,
+};
+
+const TRIAGE_LABELS: Record<string, string> = {
+  [TriageLevel.CALL_911]: 'Emergency — call 911',
+  [TriageLevel.URGENT]: 'Urgent — contact care team',
+  [TriageLevel.NOTIFY_CARE_TEAM]: 'Care team notified',
+  [TriageLevel.NONE]: '',
+};
+
+/**
+ * Build a concise 2-3 sentence narrative for a single symptom result.
+ */
+function buildSymptomNarrative(
+  symptomName: string,
+  result: SymptomResult,
+): string {
+  const parts: string[] = [];
+
+  // First sentence: what the patient reports
+  let report = `Patient reports ${symptomName.toLowerCase()}`;
+  if (result.duration) report += ` for ${result.duration}`;
+  if (result.severity) report += ` (${result.severity.toLowerCase()})`;
+  if (result.notes) report += ` with ${result.notes}`;
+  report += '.';
+  parts.push(report);
+
+  // Second sentence: medications
+  if (result.medicationsTried) {
+    parts.push(`Taking ${result.medicationsTried}.`);
+  }
+
+  // Third sentence: triage recommendation (inline)
+  const label = TRIAGE_LABELS[result.triageLevel];
+  if (label) {
+    parts.push(`${label}.`);
+  }
+
+  return parts.join(' ');
+}
+
 /**
  * Generate a patient-facing summary of the symptom check-in.
- * Format: "Hi [Name], you have been [symptom] for [X] days, rated as [severity],
- * and have [tried / not tried] medications."
+ * Produces concise 2-3 sentence narratives per symptom, grouped together,
+ * with an overall recommendation at the end.
  */
 export function generateSummary(state: SessionState): SessionSummaryData {
-  const lines: string[] = [];
+  const paragraphs: string[] = [];
   const recommendations: string[] = [];
   const educationLinks: string[] = [];
   let overallTriage = TriageLevel.NONE;
 
-  lines.push(`Hi ${state.patientName},`);
-  lines.push('');
-  lines.push('Here is a summary of today\'s symptom check-in:');
-  lines.push('');
-
-  const triagePriority: Record<string, number> = {
-    [TriageLevel.CALL_911]: 4,
-    [TriageLevel.URGENT]: 3,
-    [TriageLevel.NOTIFY_CARE_TEAM]: 2,
-    [TriageLevel.NONE]: 1,
-  };
-
+  // Process selected (user-facing) symptoms
   for (const symptomId of state.selectedSymptoms) {
     const mod = getSymptomModule(symptomId);
     const result = state.symptomResults[symptomId];
     if (!mod || !result) continue;
 
     // Track highest triage level
-    const currentPriority = triagePriority[result.triageLevel] || 0;
-    const overallPriority = triagePriority[overallTriage] || 0;
+    const currentPriority = TRIAGE_PRIORITY[result.triageLevel] || 0;
+    const overallPriority = TRIAGE_PRIORITY[overallTriage] || 0;
     if (currentPriority > overallPriority) {
       overallTriage = result.triageLevel;
     }
 
-    let line = `• **${mod.name}**`;
-    if (result.duration) line += ` for ${result.duration}`;
-    if (result.severity) line += `, rated as ${result.severity.toLowerCase()}`;
-    if (result.medicationsTried) {
-      line += `, and have tried ${result.medicationsTried}`;
-    } else {
-      line += `, and have not tried medications`;
-    }
-    line += '.';
-    lines.push(line);
+    paragraphs.push(buildSymptomNarrative(mod.name, result));
 
     // Generate recommendations per symptom
     if (result.triageLevel === TriageLevel.CALL_911) {
-      recommendations.push(`⚠️ ${mod.name}: Seek emergency care immediately.`);
+      recommendations.push(`${mod.name}: Seek emergency care immediately.`);
     } else if (result.triageLevel === TriageLevel.URGENT) {
-      recommendations.push(`🔴 ${mod.name}: Contact your care team urgently.`);
+      recommendations.push(`${mod.name}: Contact your care team urgently.`);
     } else if (result.triageLevel === TriageLevel.NOTIFY_CARE_TEAM) {
-      recommendations.push(`🟡 ${mod.name}: Your care team will be notified.`);
+      recommendations.push(`${mod.name}: Your care team will be notified.`);
     }
   }
 
@@ -66,31 +91,32 @@ export function generateSummary(state: SessionState): SessionSummaryData {
     const mod = getSymptomModule(symptomId);
     if (!mod) continue;
 
-    const currentPriority = triagePriority[result.triageLevel] || 0;
-    const overallPriority = triagePriority[overallTriage] || 0;
+    const currentPriority = TRIAGE_PRIORITY[result.triageLevel] || 0;
+    const overallPriority = TRIAGE_PRIORITY[overallTriage] || 0;
     if (currentPriority > overallPriority) {
       overallTriage = result.triageLevel;
     }
 
     if (result.triageLevel !== TriageLevel.NONE) {
-      lines.push(`• **${mod.name}** (follow-up): ${result.notes || 'Flagged for care team review'}`);
+      paragraphs.push(buildSymptomNarrative(mod.name, result));
     }
   }
 
-  lines.push('');
-
+  // Overall recommendation
+  let overall: string;
   if (overallTriage === TriageLevel.CALL_911) {
-    lines.push('🚨 **Please call 911 or go to the nearest emergency room immediately.**');
+    overall = 'Please call 911 or go to the nearest emergency room immediately.';
   } else if (overallTriage === TriageLevel.URGENT) {
-    lines.push('🔴 **Please contact your care team as soon as possible.**');
+    overall = 'Please contact your care team as soon as possible.';
   } else if (overallTriage === TriageLevel.NOTIFY_CARE_TEAM) {
-    lines.push('🟡 **Your care team has been notified and will review your symptoms.**');
+    overall = 'Your care team has been notified and will review your symptoms.';
   } else {
-    lines.push('✅ **No urgent concerns identified. Your care team will review at your next visit.**');
+    overall = 'No urgent concerns identified. Your care team will review at your next visit.';
   }
+  paragraphs.push(overall);
 
   return {
-    summaryText: lines.join('\n'),
+    summaryText: paragraphs.join('\n\n'),
     recommendations,
     educationLinks,
     overallTriageLevel: overallTriage,
