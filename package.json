@@ -18,6 +18,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "prisma": {
+    "seed": "npx tsx packages/db/src/seed.ts"
   }
 }
 

@@ -21,6 +21,9 @@ COPY server/ server/
 # Generate Prisma client
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 
+# Build shared package first (server depends on it at runtime)
+RUN npm run build --workspace=@oncolife/shared
+
 # Build server (tsc)
 RUN npm run build --workspace=server
 
@@ -38,22 +41,33 @@ COPY server/package.json server/
 # Install production dependencies only
 RUN npm ci --omit=dev
 
+# Install tsx globally for running seed script at startup
+RUN npm install -g tsx
+
 # Copy Prisma schema and generate client for production
 COPY packages/db/prisma/ packages/db/prisma/
 RUN npx prisma generate --schema=packages/db/prisma/schema.prisma
 
 # Copy built artifacts
 COPY --from=build /app/server/dist/ server/dist/
-COPY --from=build /app/packages/shared/src/ packages/shared/src/
+COPY --from=build /app/packages/shared/dist/ packages/shared/dist/
 COPY --from=build /app/packages/db/src/ packages/db/src/
+
+# Point shared package main to compiled JS for production
+RUN sed -i 's|"main": "src/index.ts"|"main": "dist/index.js"|' packages/shared/package.json
+RUN sed -i 's|"types": "src/index.ts"|"types": "dist/index.d.ts"|' packages/shared/package.json
 
 # Copy seed script dependencies
 COPY --from=build /app/node_modules/.prisma/ node_modules/.prisma/
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 3001
 
 ENV NODE_ENV=production
 ENV PORT=3001
 
-CMD ["node", "server/dist/server.js"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
