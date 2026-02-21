@@ -1,3 +1,3 @@
 # oncolife-intent
 
-A new project created with Intent by Augment.
+A new Oncolife Test project.
