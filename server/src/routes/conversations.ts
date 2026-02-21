@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { createConversationSchema, respondConversationSchema, createSummarySchema } from '../lib/validation';
+import { startConversation, processResponse, getSession } from '../engine/ConversationEngine';
+import { PatientResponse } from '../engine/types';
 
 export const conversationsRouter = Router();
 
@@ -39,11 +41,26 @@ conversationsRouter.post('/', async (req, res) => {
       },
     });
 
+    // Initialize the conversation engine and get first message
+    const engineResponse = await startConversation(conversation.id, patientId);
+
+    // Store the bot's first message
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'BOT',
+        content: engineResponse.message,
+        messageType: engineResponse.messageType,
+        options: engineResponse.options ? engineResponse.options : undefined,
+      },
+    });
+
     res.status(201).json({
       id: conversation.id,
-      phase: conversation.phase,
+      phase: engineResponse.phase,
       patientId: conversation.patientId,
       startedAt: conversation.startedAt.toISOString(),
+      engineResponse,
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
@@ -113,8 +130,38 @@ conversationsRouter.post('/:id/respond', async (req, res) => {
       },
     });
 
-    // Engine processing is Wave 2b — return 501
-    res.status(501).json({ error: 'Conversation engine not yet implemented (Wave 2b)' });
+    // Build PatientResponse from parsed data
+    const patientResponse: PatientResponse = {
+      text: parsed.data.content,
+      selectedOption: parsed.data.selectedOption,
+    };
+
+    // If content looks like a comma-separated multi-select, parse it
+    if (parsed.data.content && parsed.data.content.includes(',')) {
+      const session = getSession(id);
+      if (session) {
+        patientResponse.selectedOptions = parsed.data.content
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean);
+      }
+    }
+
+    // Process through engine
+    const engineResponse = await processResponse(id, patientResponse);
+
+    // Store the bot response message
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId: id,
+        role: 'BOT',
+        content: engineResponse.message,
+        messageType: engineResponse.messageType,
+        options: engineResponse.options ? engineResponse.options : undefined,
+      },
+    });
+
+    res.json(engineResponse);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
   }
